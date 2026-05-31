@@ -1,0 +1,30 @@
+# ── Secrets (NEVER commit) ──────────────────────────────
+secrets_local.py
+**/secrets_local.py
+*.pickle
+token.pickle
+credentials.json
+.openai_key
+.env
+
+# ── Python envs / caches ────────────────────────────────
+venv/
+**/venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# ── Runtime state / data (machine-specific) ─────────────
+*.log
+history.json
+conversation_history.json
+reminders.json
+tasks.json
+reports/
+**/reports/
+data/*.json
+database/*.db
+
+# ── OS junk ─────────────────────────────────────────────
+.DS_Store
