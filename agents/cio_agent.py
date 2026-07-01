@@ -2,10 +2,11 @@ import os, sys, re, requests
 from datetime import datetime
 import anthropic, yfinance as yf
 
-sys.path.insert(0, os.path.expanduser("~/claudio-inc"))
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, REPO_ROOT)
 from config.settings import (ANTHROPIC_API_KEY, TELEGRAM_TOKEN,
-                              TELEGRAM_CHAT_ID, PAPER_TRADING, MIN_CONVICTION_SCORE)
-sys.path.insert(0, os.path.expanduser("~/claudio-inc/agents"))
+                              TELEGRAM_CHAT_ID, PAPER_TRADING, MIN_CONVICTION_SCORE, OWNER)
+sys.path.insert(0, os.path.join(REPO_ROOT, "agents"))
 from fundamental_agent import run as run_fundamental
 from health_agent import run as run_health
 from technical_agent import run as run_technical
@@ -59,9 +60,9 @@ def run_full_analysis(ticker):
     price = info.get("currentPrice", "N/A")
 
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-    prompt = f"""You are the CIO of Claudio Inc., an elite AI hedge fund run by Nacho Diaz.
+    prompt = f"""You are the CIO of Claudio Inc., an elite AI hedge fund run by {OWNER}.
 Synthesize all agent reports into one decisive trade brief.
-Nacho has high risk tolerance. Be specific, direct, and actionable.
+{OWNER} has high risk tolerance. Be specific, direct, and actionable.
 
 TICKER: {ticker} | PRICE: ${price} | DATE: {now()}
 SCORES — F:{fs}/10 H:{hs}/10 T:{ts}/10 M:{ms}/10 AVG:{avg}/10
@@ -129,7 +130,7 @@ WATCH FOR
 - [catalyst 2]
 - [catalyst 3]
 
-CIO NOTE TO NACHO
+CIO NOTE TO {OWNER.upper()}
 [Direct paragraph — honest conviction, biggest risk, clear action directive]
 
 — Claudio Inc. AI Investment Team"""
@@ -139,7 +140,7 @@ CIO NOTE TO NACHO
     brief = resp.content[0].text
     print(brief)
 
-    path = os.path.expanduser(f"~/claudio-inc/reports/CIO_{ticker}_{datetime.now().strftime('%Y%m%d_%H%M')}.txt")
+    path = os.path.join(REPO_ROOT, "reports", f"CIO_{ticker}_{datetime.now().strftime('%Y%m%d_%H%M')}.txt")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path,"w") as f: f.write(f"CLAUDIO INC. — CIO BRIEF\nGenerated: {now()}\n\n{brief}")
     print(f"\n  💾 Saved: {os.path.basename(path)}")

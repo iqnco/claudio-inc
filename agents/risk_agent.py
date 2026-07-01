@@ -2,7 +2,8 @@ import os, sys
 from datetime import datetime
 import anthropic, yfinance as yf, numpy as np
 
-sys.path.insert(0, os.path.expanduser("~/claudio-inc"))
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, REPO_ROOT)
 from config.settings import ANTHROPIC_API_KEY, INITIAL_CAPITAL, MAX_POSITION_SIZE_PCT, MAX_PORTFOLIO_DRAWDOWN_PCT
 
 def now():
@@ -98,7 +99,7 @@ def run(ticker, fs=5, hs=5, ts=5, ms=5):
     print("  🧠 Analyzing...")
     analysis, m = analyze(ticker, metrics, fs, hs, ts, ms)
     print(analysis)
-    path = os.path.expanduser(f"~/claudio-inc/reports/risk_{ticker}.txt")
+    path = os.path.join(REPO_ROOT, "reports", f"risk_{ticker}.txt")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path,"w") as f: f.write(f"Generated: {now()}\n\n{analysis}")
     print(f"\n  💾 Saved to reports/risk_{ticker}.txt")

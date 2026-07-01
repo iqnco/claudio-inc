@@ -1,5 +1,5 @@
 import sqlite3, os
-DB_PATH = os.path.expanduser("~/claudio-inc/database/claudio.db")
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "claudio.db")
 def setup():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()

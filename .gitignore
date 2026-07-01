@@ -1,6 +1,8 @@
-# ── Secrets (NEVER commit) ──────────────────────────────
+# ── Secrets / personal config (NEVER commit) ────────────
 secrets_local.py
 **/secrets_local.py
+config_local.py
+**/config_local.py
 *.pickle
 token.pickle
 credentials.json

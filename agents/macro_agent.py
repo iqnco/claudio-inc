@@ -2,7 +2,8 @@ import os, sys, requests
 from datetime import datetime, timedelta
 import anthropic, yfinance as yf
 
-sys.path.insert(0, os.path.expanduser("~/claudio-inc"))
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, REPO_ROOT)
 from config.settings import ANTHROPIC_API_KEY, FINNHUB_API_KEY, NEWSAPI_KEY
 
 def now():
@@ -113,7 +114,7 @@ def run(ticker):
     analysis = analyze(ticker, info, spy_ret, vix_v, tnx_v, sec_ret, stk_ret, etf,
                        get_news(ticker), get_market_news(), get_sentiment(ticker), get_earnings(ticker))
     print(analysis)
-    path = os.path.expanduser(f"~/claudio-inc/reports/macro_{ticker}.txt")
+    path = os.path.join(REPO_ROOT, "reports", f"macro_{ticker}.txt")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path,"w") as f: f.write(f"Generated: {now()}\n\n{analysis}")
     print(f"\n  💾 Saved to reports/macro_{ticker}.txt")
