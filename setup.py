@@ -6,13 +6,10 @@ Run this once after cloning the repo:
 
     python3 setup.py
 
-It walks you through the API keys the analysis agents need, creates a
-virtual environment, installs dependencies, and initializes the local
-SQLite database.
-
-Note: this repo only runs the *analysis agents*. To chat with them over
-Telegram, also clone https://github.com/iqnco/claude-telegram-bot as a
-sibling directory and run its setup.py too — see README.md.
+It walks you through the API keys the analysis agents (and the Telegram
+bot) need, creates a virtual environment, installs dependencies,
+initializes the local SQLite database, and optionally sets up the bot
+to auto-start on login.
 
 No third-party packages are required to run this script itself — only
 the Python standard library.
@@ -20,6 +17,8 @@ the Python standard library.
 
 import getpass
 import os
+import platform
+import re
 import subprocess
 import sys
 import textwrap
@@ -70,6 +69,14 @@ def ask_secret(prompt, optional=False, validate=None, error_msg="That doesn't lo
         print(error_msg)
 
 
+def ask_yes_no(prompt, default=False):
+    d = "Y/n" if default else "y/N"
+    raw = input(f"{prompt} [{d}]: ").strip().lower()
+    if not raw:
+        return default
+    return raw in ("y", "yes")
+
+
 def write_file_guarded(path: Path, content: str, label: str):
     if path.exists():
         ans = input(f"{label} already exists at {path} — overwrite? [y/N]: ").strip().lower()
@@ -88,10 +95,10 @@ def run(cmd, **kwargs):
 
 def main():
     banner("Claudio Inc. — setup")
-    print("This configures the analysis agents (Anthropic, market-data APIs, Telegram).\n")
+    print("This configures the analysis agents and the Telegram bot.\n")
     print(f"Repo location: {REPO_ROOT}")
 
-    step(1, 5, "Anthropic API key")
+    step(1, 7, "Anthropic API key")
     print("Used by every agent to write its analysis. Get one at:")
     print("  https://console.anthropic.com/settings/keys\n")
     anthropic_key = ask_secret(
@@ -100,7 +107,7 @@ def main():
         error_msg='Anthropic keys start with "sk-ant-". Try again.',
     )
 
-    step(2, 5, "Market-data API keys")
+    step(2, 7, "Market-data API keys")
     print(textwrap.dedent("""\
         Three free-tier API keys power the agents' data:
           FMP       (fundamentals/valuation) — https://site.financialmodelingprep.com/developer/docs
@@ -112,20 +119,27 @@ def main():
     finnhub_key = ask_secret("Paste your Finnhub API key", optional=True)
     newsapi_key = ask_secret("Paste your NewsAPI key", optional=True)
 
-    step(3, 5, "Telegram (optional, only needed if you'll also run claude-telegram-bot)")
+    step(3, 7, "Telegram bot")
     print(textwrap.dedent("""\
-        Claudio can send you analysis briefs over Telegram, via the same bot
-        used by the claude-telegram-bot repo. If you haven't set that up yet,
-        create a bot with @BotFather first, then come back here.
-        Leave blank to skip (agents still work, just print to the terminal).
+        1. Open Telegram and message @BotFather
+        2. Send: /newbot
+        3. Give it a name and a username (must end in "bot")
+        4. BotFather replies with a token like: 123456789:AAExampleTokenTextGoesHere
+        Leave blank to skip Telegram entirely (agents still work standalone
+        from the terminal, just no bot.py).
     """))
-    telegram_token = ask_secret("Paste your Telegram bot token", optional=True)
+    telegram_token = ask_secret(
+        "Paste your bot token (or leave blank to skip)",
+        optional=True,
+        validate=lambda v: bool(re.match(r"^\d+:[\w-]+$", v)),
+        error_msg='That doesn\'t look like a bot token (expected "digits:letters"). Try again.',
+    )
+    owner_name = ask("What's your first name? (used in agent and bot prompts)", default="there")
     telegram_chat_id = ""
-    owner_name = ask("What's your first name? (used in the CIO agent's prompts)", default="there")
     if telegram_token:
         print("\nGet your numeric Telegram user ID by messaging @userinfobot.")
         telegram_chat_id = ask(
-            "Your numeric Telegram chat ID",
+            "Your numeric Telegram chat ID (the bot only responds to this ID)",
             validate=lambda v: v.isdigit(),
             error_msg="That should be a number. Try again.",
         )
@@ -148,7 +162,7 @@ def main():
         "config_local.py",
     )
 
-    step(4, 5, "Python environment")
+    step(4, 7, "Python environment")
     if VENV_PY.exists():
         print(f"Virtual environment already exists at {VENV_DIR}, skipping creation.")
     else:
@@ -158,20 +172,79 @@ def main():
     print(f"Installing dependencies from {req_file} (this can take a minute) ...")
     run([str(VENV_PIP), "install", "-q", "-r", str(req_file)])
 
-    step(5, 5, "Database")
+    step(5, 7, "Database")
     run([str(VENV_PY), str(REPO_ROOT / "database" / "setup_db.py")])
+
+    step(6, 7, "Claude Code CLI (for open-ended chat)")
+    print(textwrap.dedent("""\
+        Free-form chat with the bot (anything that isn't an "analyze TICKER"
+        style command) is answered by shelling out to the Claude Code CLI
+        (`claude -p ...`), not the Anthropic API directly. Analysis commands
+        don't need this.
+    """))
+    if not telegram_token:
+        print("Skipping — no Telegram bot configured.")
+    elif subprocess.run(["which", "claude"], capture_output=True).returncode == 0:
+        print("Found `claude` on PATH — chat should work.")
+    else:
+        print(textwrap.dedent("""\
+            Didn't find `claude` on PATH. Install Claude Code
+            (https://claude.com/claude-code) and run `claude` once to log in,
+            or the bot's free-form chat replies will fail (analysis commands
+            like "analyze AAPL" will still work fine).
+        """))
+
+    step(7, 7, "Auto-start")
+    if not telegram_token:
+        print("No Telegram bot configured — nothing to auto-start.")
+    elif platform.system() != "Darwin":
+        print(f"Run manually with:\n  {VENV_PY} {REPO_ROOT / 'bot.py'}")
+    elif ask_yes_no("Set up bot.py auto-start on login via launchd (macOS)?", default=True):
+        label = "com.claudioinc.bot"
+        plist_path = Path.home() / "Library" / "LaunchAgents" / f"{label}.plist"
+        log_path = REPO_ROOT / "bot.log"
+        plist = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>{label}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{VENV_PY}</string>
+        <string>-u</string>
+        <string>{REPO_ROOT / 'bot.py'}</string>
+    </array>
+    <key>WorkingDirectory</key><string>{REPO_ROOT}</string>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>StandardOutPath</key><string>{log_path}</string>
+    <key>StandardErrorPath</key><string>{log_path}</string>
+</dict>
+</plist>
+"""
+        plist_path.parent.mkdir(parents=True, exist_ok=True)
+        plist_path.write_text(plist)
+        print(f"Wrote {plist_path}")
+        try:
+            subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}", str(plist_path)],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            run(["launchctl", "bootstrap", f"gui/{os.getuid()}", str(plist_path)])
+            print(f"\nBot is now running and will auto-start on login.")
+            print(f"Restart: launchctl kickstart -k gui/$(id -u)/{label}")
+            print(f"Logs:    tail -f {log_path}")
+        except subprocess.CalledProcessError:
+            print(f"Could not load automatically — run: launchctl bootstrap gui/$(id -u) {plist_path}")
+    else:
+        print(f"Skipping. Run manually with:\n  {VENV_PY} {REPO_ROOT / 'bot.py'}")
 
     banner("Done!")
     print(textwrap.dedent(f"""\
         Try an analysis directly from the terminal:
           {VENV_PY} agents/fundamental_agent.py AAPL
           {VENV_PY} agents/cio_agent.py AAPL       (full 5-agent CIO brief)
-
-        To chat with Claudio and run analyses over Telegram, also set up
-        https://github.com/iqnco/claude-telegram-bot as a sibling directory
-        of this repo (see README.md for the "clone both, run both setups"
-        flow) — it points at this repo's venv and agents automatically.
     """))
+    if telegram_token:
+        print("Message your bot on Telegram — try \"help\" for the command list.")
 
 
 if __name__ == "__main__":
