@@ -6,7 +6,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 sys.path.insert(0, os.path.join(REPO_ROOT, "agents"))
 from config.settings import (ANTHROPIC_API_KEY, FINNHUB_API_KEY, NEWSAPI_KEY,
-                              PAPER_TRADING, MODEL_MAIN, OWNER)
+                              MODEL_MAIN, OWNER)
 import market_data
 from fundamental_agent import run as run_fundamental
 from health_agent import run as run_health
@@ -62,7 +62,6 @@ Synthesize all agent reports into one decisive trade brief.
 
 TICKER: {ticker} | PRICE: ${price} | DATE: {now()}
 SCORES — F:{fs}/10 H:{hs}/10 T:{ts}/10 M:{ms}/10 AVG:{avg}/10
-MODE: {'PAPER TRADE' if PAPER_TRADING else 'LIVE TRADE'}
 
 FUNDAMENTAL REPORT:
 {fund[:600]}
@@ -85,7 +84,6 @@ Write the final brief in this exact format:
 {'='*45}
 Company: {name}
 Price: ${price} | {now()}
-Mode: {'PAPER TRADE' if PAPER_TRADING else 'LIVE TRADE'}
 {'='*45}
 
 EXECUTIVE SUMMARY
@@ -112,14 +110,14 @@ RECOMMENDATION: [STRONG BUY / BUY / HOLD / AVOID / SHORT]
 CONVICTION: [X/10]
 
 EXECUTION PLAN
-Entry:      $[price or range]
-Position:   $[USD] / [shares]
-Stop Loss:  $[price] — [X]% max loss = $[USD]
-Target 1:   $[price] — [X]% gain (take 50%)
-Target 2:   $[price] — [X]% gain (exit rest)
-R/R Ratio:  [X:1]
-Timeframe:  [X weeks/months]
-Instrument: [Stock / Calls / Puts / Spread]
+Entry:         $[price or range]
+Position Size: [X]% of portfolio (risk-based, see RISK REPORT)
+Stop Loss:     $[price] — [X]% price risk ([Y]% of portfolio at risk at that size)
+Target 1:      $[price] — [X]% gain (take 50%)
+Target 2:      $[price] — [X]% gain (exit rest)
+R/R Ratio:     [X:1]
+Timeframe:     [X weeks/months]
+Instrument:    [Stock / Calls / Puts / Spread]
 
 WATCH FOR
 - [catalyst 1]

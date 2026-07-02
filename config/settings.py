@@ -5,11 +5,11 @@ from secrets_local import (TELEGRAM_TOKEN, ANTHROPIC_API_KEY,
 from config_local import OWNER, TELEGRAM_CHAT_ID
 
 FUND_NAME = "Claudio Inc."
-INITIAL_CAPITAL = 10000
+# Position sizing is percentage-of-portfolio based, not tied to a fixed
+# dollar capital figure — works the same whether your account is $1k or $1M.
 MAX_POSITION_SIZE_PCT = 0.10
 MAX_SECTOR_CONCENTRATION_PCT = 0.30
 MAX_PORTFOLIO_DRAWDOWN_PCT = 0.20
-PAPER_TRADING = True
 MIN_CONVICTION_SCORE = 7
 MAX_OPTIONS_RISK_PCT = 0.05
 

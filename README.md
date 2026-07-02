@@ -94,10 +94,14 @@ claudio-inc/
 ## Configuration
 
 `config/settings.py` holds non-secret strategy parameters you're welcome to
-edit directly and commit: `FUND_NAME`, `INITIAL_CAPITAL`,
-`MAX_POSITION_SIZE_PCT`, `MAX_SECTOR_CONCENTRATION_PCT`,
-`MAX_PORTFOLIO_DRAWDOWN_PCT`, `PAPER_TRADING`, `MIN_CONVICTION_SCORE`,
-`MAX_OPTIONS_RISK_PCT`, `MODEL_MAIN`, `MODEL_FAST`.
+edit directly and commit: `FUND_NAME`, `MAX_POSITION_SIZE_PCT`,
+`MAX_SECTOR_CONCENTRATION_PCT`, `MAX_PORTFOLIO_DRAWDOWN_PCT`,
+`MIN_CONVICTION_SCORE`, `MAX_OPTIONS_RISK_PCT`, `MODEL_MAIN`, `MODEL_FAST`.
+
+Position sizing is always expressed as a % of your total portfolio (driven
+by `MAX_POSITION_SIZE_PCT` and a half-Kelly calculation), never a dollar
+amount or share count — there's no `INITIAL_CAPITAL` to configure, so the
+same analysis works whether your account is $1,000 or $1,000,000.
 
 Your name and Telegram chat ID live in the gitignored `config_local.py`
 instead, since they're personal rather than strategy settings.
@@ -120,6 +124,7 @@ It fails gracefully (a message, not a crash); everything else works.
 
 ## Notes
 
-- `PAPER_TRADING = True` by default in `config/settings.py` — this does not
-  place real trades, it's a research/brief tool.
+- This doesn't place real trades — it's a research/brief tool. The output
+  is an entry strategy (price levels, position size as % of portfolio, R/R)
+  for you to execute yourself if you choose to act on it.
 - This is a personal-use project shared as-is — no warranty, use at your own risk.
