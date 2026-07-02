@@ -5,6 +5,15 @@ All notable changes to this project are documented here. Versioning follows
 fixes, minor for backwards-compatible additions, major for breaking changes
 (e.g. a `config_local.py` key being renamed or removed).
 
+## [2.2.0] - 2026-07-02
+
+- Removed `PAPER_TRADING`/"PAPER TRADE" mode labels and `INITIAL_CAPITAL`.
+  Position sizing is now always a % of total portfolio (half-Kelly capped
+  at `MAX_POSITION_SIZE_PCT`), not a dollar amount or share count tied to
+  a fixed hypothetical account — works the same at any portfolio size.
+  Entry strategy (price levels, stop/targets, R/R) is unchanged; only how
+  position size and max-loss are expressed changed, from $ to %.
+
 ## [2.1.0] - 2026-07-02
 
 Reliability, cost, and chat-memory fixes from real usage feedback.
