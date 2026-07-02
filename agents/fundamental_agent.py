@@ -1,17 +1,15 @@
 import os, sys
 from datetime import datetime
-import anthropic, yfinance as yf
+import anthropic
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
-from config.settings import ANTHROPIC_API_KEY
+sys.path.insert(0, os.path.join(REPO_ROOT, "agents"))
+from config.settings import ANTHROPIC_API_KEY, MODEL_MAIN
+import market_data
 
 def now():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-def gather_data(ticker):
-    stock = yf.Ticker(ticker)
-    return {"info": stock.info, "hist": stock.history(period="1y")}
 
 def analyze(ticker, data):
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -51,15 +49,16 @@ FUNDAMENTAL ANALYSIS — {ticker}
 7. VERDICT: [INVESTIGATE FURTHER / MONITOR / PASS]
 [Two paragraph directional bias — bullish, bearish, or neutral]"""
 
-    resp = client.messages.create(model="claude-sonnet-4-6", max_tokens=2000,
+    resp = client.messages.create(model=MODEL_MAIN, max_tokens=2000,
                                    messages=[{"role":"user","content":prompt}])
     return resp.content[0].text
 
-def run(ticker):
+def run(ticker, data=None):
     ticker = ticker.upper()
     print(f"\n{'='*50}\n  🔍 FUNDAMENTAL AGENT — {ticker}\n  {now()}\n{'='*50}\n")
-    print("  📊 Gathering data...")
-    data = gather_data(ticker)
+    if data is None:
+        print("  📊 Gathering data...")
+        data = market_data.fetch_core(ticker)
     print("  🧠 Analyzing...")
     analysis = analyze(ticker, data)
     print(analysis)

@@ -5,6 +5,37 @@ All notable changes to this project are documented here. Versioning follows
 fixes, minor for backwards-compatible additions, major for breaking changes
 (e.g. a `config_local.py` key being renamed or removed).
 
+## [2.1.0] - 2026-07-02
+
+Reliability, cost, and chat-memory fixes from real usage feedback.
+
+- **Fixed:** `analyze TICKER` sent every brief to Telegram twice. `cio_agent.py`
+  was sending it directly (`send_telegram()`) *and* `bot.py` was separately
+  relaying the same output — only one send now happens, from `bot.py`.
+- **Fixed:** the bot was fully synchronous — a multi-minute analysis blocked
+  the poll loop, so it looked unresponsive to anything sent in that window.
+  Message handling now runs in a background thread per message.
+- **Fixed:** free-form chat had no real memory — it shelled out to the
+  `claude` CLI with the whole history flattened into one text blob per call.
+  It now calls the Anthropic API directly with a proper multi-turn
+  `messages` array, so the model actually sees prior turns. Also removes the
+  Claude Code CLI as a runtime dependency for chat.
+- **Cost/performance:** a full analysis used to fetch the same ticker's
+  yfinance data independently in 6 places (once per agent, plus once more
+  in the CIO synthesis step), and SPY history separately in both the macro
+  and risk agents. All of that is now fetched once (`agents/market_data.py`)
+  and shared. Also cut a redundant separate 3-month yfinance fetch in the
+  macro agent by slicing the already-fetched 1-year history instead.
+- **Cost:** health/technical/risk agents (which mostly narrate numbers
+  Python already computed, not open-ended judgment) now run on
+  `claude-haiku-4-5-20251001` instead of Sonnet. Fundamental, macro, and the
+  CIO synthesis — the calls that need real judgment — stay on Sonnet.
+  Configurable via `MODEL_MAIN`/`MODEL_FAST` in `config/settings.py`.
+- **Leaner:** removed `FMP_API_KEY` — it was collected by the setup wizard
+  but never actually used anywhere in the code. One less key to configure.
+  (Non-breaking: an old `secrets_local.py` with a leftover `FMP_API_KEY`
+  line still works fine, it's just unused.)
+
 ## [2.0.0] - 2026-07-01
 
 **Breaking:** merged in the [claude-telegram-bot](https://github.com/iqnco/claude-telegram-bot)

@@ -1,26 +1,38 @@
-import requests, subprocess, time, os, sys, json, re
+import requests, time, os, sys, json, threading
 from datetime import datetime
+
+BASE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, BASE)
 
 from secrets_local import TELEGRAM_TOKEN  # gitignored secret
 from config_local import TELEGRAM_CHAT_ID, OWNER  # gitignored personal config
-ALLOWED_ID = int(TELEGRAM_CHAT_ID)
-API        = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
-offset     = 0
-BASE         = os.path.dirname(os.path.abspath(__file__))
+from config.settings import ANTHROPIC_API_KEY, MODEL_MAIN
+from agents.cio_agent import run_full_analysis
+from agents.fundamental_agent import run as run_fundamental
+from agents.health_agent import run as run_health
+from agents.technical_agent import run as run_technical
+from agents.macro_agent import run as run_macro
+
+import anthropic
+
+ALLOWED_ID   = int(TELEGRAM_CHAT_ID)
+API          = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
+offset       = 0
 HISTORY_PATH = os.path.join(BASE, "conversation_history.json")
 MAX_HISTORY  = 25
-VENV_PY      = os.path.join(BASE, "venv", "bin", "python3")
-# Clean env for agent subprocesses: drop PYTHONPATH so the venv's own (working) site-packages win
-AGENT_ENV    = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
-AGENT_ENV["PATH"] = f"{os.path.expanduser('~/.local/bin')}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+HISTORY_LOCK = threading.Lock()
+
+CLIENT = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 def load_history():
-    try:
-        with open(HISTORY_PATH) as f: return json.load(f)
-    except: return {}
+    with HISTORY_LOCK:
+        try:
+            with open(HISTORY_PATH) as f: return json.load(f)
+        except: return {}
 
 def save_history(h):
-    with open(HISTORY_PATH,"w") as f: json.dump(h,f)
+    with HISTORY_LOCK:
+        with open(HISTORY_PATH,"w") as f: json.dump(h,f)
 
 def add_to_history(chat_id, role, content):
     h = load_history(); k = str(chat_id)
@@ -29,46 +41,34 @@ def add_to_history(chat_id, role, content):
     h[k] = h[k][-MAX_HISTORY:]
     save_history(h)
 
-def get_context(chat_id):
-    msgs = load_history().get(str(chat_id),[])
-    if not msgs: return ""
-    ctx = "CONVERSATION HISTORY (most recent last; timestamps are real — use them to judge what's current):\n"
-    for m in msgs:
-        who = OWNER if m["role"] == "user" else "Claudio"
-        ctx += f"[{m.get('time','?')}] {who}: {m['content']}\n"
-    return ctx
-
 def send(chat_id, text):
     for chunk in [text[i:i+4000] for i in range(0,len(text),4000)]:
         requests.post(f"{API}/sendMessage", json={"chat_id":chat_id,"text":chunk})
 
 def run_claude(chat_id, text):
-    ctx = get_context(chat_id)
-    now = datetime.now().strftime("%A, %B %d, %Y at %H:%M")
-    prompt = f"""You are Claudio, {OWNER}'s personal AI assistant running on their Mac.
-You help with anything — emails, research, scheduling, analysis, coding, questions.
-You are direct, smart, and remember the conversation context.
+    """Real multi-turn conversation via the Anthropic API (not the claude CLI),
+    so the model actually sees prior turns as proper history instead of a
+    flattened text blob — this is what gives it real memory."""
+    prior = load_history().get(str(chat_id), [])[-MAX_HISTORY:]
+    messages = [{"role": m["role"], "content": m["content"]} for m in prior]
+    messages.append({"role": "user", "content": text})
 
-CURRENT DATE & TIME: {now}. This is authoritative — trust it over any date implied by older messages.
+    now_str = datetime.now().strftime("%A, %B %d, %Y at %H:%M")
+    system = (
+        f"You are Claudio, {OWNER}'s personal AI assistant running on their Mac.\n"
+        f"You help with anything — research, analysis, quick questions, brainstorming, coding.\n"
+        f"Be direct, smart, and concise — this is Telegram, not an essay.\n\n"
+        f"Current date & time: {now_str}. Trust this over anything implied by earlier messages."
+    )
+    resp = CLIENT.messages.create(model=MODEL_MAIN, max_tokens=1500, system=system, messages=messages)
+    return resp.content[0].text
 
-{ctx}
-
-{OWNER}: {text}
-
-Use the conversation history above to stay in context — {OWNER} expects you to remember what was already said and not re-ask. If something in the history is from an earlier day, treat the CURRENT DATE above as now."""
-    result = subprocess.run(["claude","-p",prompt],
-        capture_output=True, text=True, timeout=120,
-        env={**os.environ,"PATH":f"{os.path.expanduser('~/.local/bin')}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"})
-    return result.stdout.strip() or "No response"
-
-def run_agent(script, ticker, chat_id, label):
+def run_agent(fn, ticker, chat_id, label):
     send(chat_id, f"🔬 Running {label} on {ticker}...")
     try:
-        r = subprocess.run(
-            [VENV_PY, os.path.join(BASE, "agents", script), ticker],
-            capture_output=True, text=True, timeout=300, env=AGENT_ENV)
-        out = r.stdout.strip()
-        send(chat_id, out[-3500:] if out else f"❌ No output from {label}.\n{(r.stderr or '').strip()[-1500:]}")
+        result = fn(ticker)
+        analysis = result[0] if isinstance(result, tuple) else result
+        send(chat_id, analysis[-3500:])
     except Exception as e:
         send(chat_id, f"❌ {label} error: {e}")
 
@@ -86,26 +86,19 @@ def handle_message(msg):
         if not ticker: send(chat_id,"Usage: analyze TICKER"); return
         send(chat_id,f"🏦 Full analysis on {ticker}...\n⏱ ~3 minutes. Stand by.")
         try:
-            r = subprocess.run(
-                [VENV_PY, os.path.join(BASE, "agents", "cio_agent.py"), ticker],
-                capture_output=True, text=True, timeout=600, env=AGENT_ENV)
-            out = r.stdout.strip()
-            if "🏦" in out:
-                send(chat_id, out[out.rfind("🏦"):])
-            elif out:
-                send(chat_id, out[-3500:])
-            else:
-                send(chat_id, f"❌ Analysis failed.\n{(r.stderr or '').strip()[-1500:]}")
-        except Exception as e: send(chat_id,f"❌ Error: {e}")
+            brief = run_full_analysis(ticker)
+            send(chat_id, brief)
+        except Exception as e:
+            send(chat_id, f"❌ Analysis failed: {e}")
 
     elif t.startswith("quick "):
-        if len(parts)>1: run_agent("fundamental_agent.py",parts[1].upper(),chat_id,"Fundamental")
+        if len(parts)>1: run_agent(run_fundamental, parts[1].upper(), chat_id, "Fundamental")
     elif t.startswith("technical "):
-        if len(parts)>1: run_agent("technical_agent.py",parts[1].upper(),chat_id,"Technical")
+        if len(parts)>1: run_agent(run_technical, parts[1].upper(), chat_id, "Technical")
     elif t.startswith("health "):
-        if len(parts)>1: run_agent("health_agent.py",parts[1].upper(),chat_id,"Health")
+        if len(parts)>1: run_agent(run_health, parts[1].upper(), chat_id, "Health")
     elif t.startswith("macro "):
-        if len(parts)>1: run_agent("macro_agent.py",parts[1].upper(),chat_id,"Macro")
+        if len(parts)>1: run_agent(run_macro, parts[1].upper(), chat_id, "Macro")
 
     elif t in ["portfolio","positions","port","p"]:
         try:
@@ -136,8 +129,12 @@ def handle_message(msg):
   (remembers last 25 messages)""")
 
     else:
+        try:
+            response = run_claude(chat_id, text)
+        except Exception as e:
+            send(chat_id, f"❌ Error: {e}")
+            return
         add_to_history(chat_id,"user",text)
-        response = run_claude(chat_id, text)
         add_to_history(chat_id,"assistant",response)
         send(chat_id, response)
 
@@ -152,7 +149,9 @@ if __name__ == "__main__":
             for u in r.get("result",[]):
                 offset = u["update_id"]+1
                 msg = u.get("message",{})
-                if msg: handle_message(msg)
+                # Handle in a thread so a multi-minute analysis never blocks polling
+                # — otherwise the bot looks unresponsive to any message sent while one is running.
+                if msg: threading.Thread(target=handle_message, args=(msg,), daemon=True).start()
         except Exception as e:
             consecutive_errors += 1
             print(f"Error ({consecutive_errors}): {e}")

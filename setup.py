@@ -107,19 +107,18 @@ def main():
         error_msg='Anthropic keys start with "sk-ant-". Try again.',
     )
 
-    step(2, 7, "Market-data API keys")
+    step(2, 6, "Market-data API keys")
     print(textwrap.dedent("""\
-        Three free-tier API keys power the agents' data:
-          FMP       (fundamentals/valuation) — https://site.financialmodelingprep.com/developer/docs
-          Finnhub   (health/technical data)  — https://finnhub.io/register
-          NewsAPI   (macro news)             — https://newsapi.org/register
-        All have free tiers. Leave any blank to skip that agent's data source.
+        Two free-tier API keys power the macro agent's news/sentiment data
+        (fundamentals/technicals/risk all come from yfinance, no key needed):
+          Finnhub   (news/sentiment/earnings) — https://finnhub.io/register
+          NewsAPI   (macro news)              — https://newsapi.org/register
+        Both have free tiers. Leave either blank to skip that data source.
     """))
-    fmp_key     = ask_secret("Paste your FMP API key", optional=True)
     finnhub_key = ask_secret("Paste your Finnhub API key", optional=True)
     newsapi_key = ask_secret("Paste your NewsAPI key", optional=True)
 
-    step(3, 7, "Telegram bot")
+    step(3, 6, "Telegram bot")
     print(textwrap.dedent("""\
         1. Open Telegram and message @BotFather
         2. Send: /newbot
@@ -148,7 +147,6 @@ def main():
         REPO_ROOT / "secrets_local.py",
         f'# GITIGNORED — real secrets.\n'
         f'TELEGRAM_TOKEN    = {telegram_token!r}\n'
-        f'FMP_API_KEY       = {fmp_key!r}\n'
         f'ANTHROPIC_API_KEY = {anthropic_key!r}\n'
         f'FINNHUB_API_KEY   = {finnhub_key!r}\n'
         f'NEWSAPI_KEY       = {newsapi_key!r}\n',
@@ -162,7 +160,7 @@ def main():
         "config_local.py",
     )
 
-    step(4, 7, "Python environment")
+    step(4, 6, "Python environment")
     if VENV_PY.exists():
         print(f"Virtual environment already exists at {VENV_DIR}, skipping creation.")
     else:
@@ -172,29 +170,10 @@ def main():
     print(f"Installing dependencies from {req_file} (this can take a minute) ...")
     run([str(VENV_PIP), "install", "-q", "-r", str(req_file)])
 
-    step(5, 7, "Database")
+    step(5, 6, "Database")
     run([str(VENV_PY), str(REPO_ROOT / "database" / "setup_db.py")])
 
-    step(6, 7, "Claude Code CLI (for open-ended chat)")
-    print(textwrap.dedent("""\
-        Free-form chat with the bot (anything that isn't an "analyze TICKER"
-        style command) is answered by shelling out to the Claude Code CLI
-        (`claude -p ...`), not the Anthropic API directly. Analysis commands
-        don't need this.
-    """))
-    if not telegram_token:
-        print("Skipping — no Telegram bot configured.")
-    elif subprocess.run(["which", "claude"], capture_output=True).returncode == 0:
-        print("Found `claude` on PATH — chat should work.")
-    else:
-        print(textwrap.dedent("""\
-            Didn't find `claude` on PATH. Install Claude Code
-            (https://claude.com/claude-code) and run `claude` once to log in,
-            or the bot's free-form chat replies will fail (analysis commands
-            like "analyze AAPL" will still work fine).
-        """))
-
-    step(7, 7, "Auto-start")
+    step(6, 6, "Auto-start")
     if not telegram_token:
         print("No Telegram bot configured — nothing to auto-start.")
     elif platform.system() != "Darwin":

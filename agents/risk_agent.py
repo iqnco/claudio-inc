@@ -1,18 +1,19 @@
 import os, sys
 from datetime import datetime
-import anthropic, yfinance as yf, numpy as np
+import anthropic, numpy as np
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
-from config.settings import ANTHROPIC_API_KEY, INITIAL_CAPITAL, MAX_POSITION_SIZE_PCT, MAX_PORTFOLIO_DRAWDOWN_PCT
+sys.path.insert(0, os.path.join(REPO_ROOT, "agents"))
+from config.settings import ANTHROPIC_API_KEY, MODEL_FAST, INITIAL_CAPITAL, MAX_POSITION_SIZE_PCT, MAX_PORTFOLIO_DRAWDOWN_PCT
+import market_data
 
 def now():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-def compute_risk(ticker):
-    stock = yf.Ticker(ticker)
-    hist = stock.history(period="1y")
-    info = stock.info
+def compute_risk(ticker, data, spy_hist=None):
+    hist = data["hist"]
+    info = data["info"]
     close = hist["Close"]
     rets = close.pct_change().dropna()
     curr = close.iloc[-1]
@@ -21,8 +22,9 @@ def compute_risk(ticker):
     max_dd = ((close-roll_max)/roll_max*100).min()
     ann_ret = rets.mean()*252*100
     sharpe = (ann_ret-5)/ann_vol if ann_vol>0 else 0
-    spy_h = yf.Ticker("SPY").history(period="1y")
-    spy_r = spy_h["Close"].pct_change().dropna()
+    if spy_hist is None:
+        spy_hist = market_data.fetch_spy_history()
+    spy_r = spy_hist["Close"].pct_change().dropna()
     n = min(len(rets),len(spy_r))
     beta = np.cov(rets[-n:],spy_r[-n:])[0][1]/np.var(spy_r[-n:]) if n>30 else info.get("beta",1)
     var95 = np.percentile(rets,5)*100
@@ -87,15 +89,18 @@ TRADE SUMMARY:
 │ MAX LOSS:  $[USD]                   │
 └─────────────────────────────────────┘"""
 
-    resp = client.messages.create(model="claude-sonnet-4-6", max_tokens=2000,
+    resp = client.messages.create(model=MODEL_FAST, max_tokens=2000,
                                    messages=[{"role":"user","content":prompt}])
     return resp.content[0].text, m
 
-def run(ticker, fs=5, hs=5, ts=5, ms=5):
+def run(ticker, data=None, spy_hist=None, fs=5, hs=5, ts=5, ms=5):
     ticker = ticker.upper()
     print(f"\n{'='*50}\n  ⚖️  RISK AGENT — {ticker}\n  {now()}\n{'='*50}\n")
+    if data is None:
+        print("  📊 Gathering data...")
+        data = market_data.fetch_core(ticker)
     print("  📊 Computing risk metrics...")
-    metrics = compute_risk(ticker)
+    metrics = compute_risk(ticker, data, spy_hist)
     print("  🧠 Analyzing...")
     analysis, m = analyze(ticker, metrics, fs, hs, ts, ms)
     print(analysis)

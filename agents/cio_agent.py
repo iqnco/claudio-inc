@@ -1,12 +1,13 @@
-import os, sys, re, requests
+import os, sys, re
 from datetime import datetime
-import anthropic, yfinance as yf
+import anthropic
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
-from config.settings import (ANTHROPIC_API_KEY, TELEGRAM_TOKEN,
-                              TELEGRAM_CHAT_ID, PAPER_TRADING, MIN_CONVICTION_SCORE, OWNER)
 sys.path.insert(0, os.path.join(REPO_ROOT, "agents"))
+from config.settings import (ANTHROPIC_API_KEY, FINNHUB_API_KEY, NEWSAPI_KEY,
+                              PAPER_TRADING, MODEL_MAIN, OWNER)
+import market_data
 from fundamental_agent import run as run_fundamental
 from health_agent import run as run_health
 from technical_agent import run as run_technical
@@ -16,14 +17,6 @@ from risk_agent import run as run_risk
 def now():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-def send_telegram(message):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    for chunk in [message[i:i+4000] for i in range(0,len(message),4000)]:
-        try:
-            r = requests.post(url, json={"chat_id":TELEGRAM_CHAT_ID,"text":chunk}, timeout=15)
-            if not r.ok: print(f"  ⚠️ Telegram error: {r.status_code}")
-        except Exception as e: print(f"  ⚠️ Telegram failed: {e}")
-
 def extract_score(text):
     matches = re.findall(r'(\d+)/10', text)
     return int(matches[-1]) if matches else 5
@@ -32,17 +25,21 @@ def run_full_analysis(ticker):
     ticker = ticker.upper()
     print(f"\n{'#'*55}\n  CLAUDIO INC. — FULL ANALYSIS: {ticker}\n  {now()}\n{'#'*55}\n")
 
-    print("🔍 [1/5] Fundamental Agent...")
-    fund = run_fundamental(ticker)
+    print("📊 Gathering shared market data (fetched once, reused by every agent below)...")
+    data = market_data.fetch_core(ticker)
+    extras = market_data.fetch_macro_extras(ticker, data["info"], FINNHUB_API_KEY, NEWSAPI_KEY)
+
+    print("\n🔍 [1/5] Fundamental Agent...")
+    fund = run_fundamental(ticker, data=data)
 
     print("\n🏦 [2/5] Financial Health Agent...")
-    health = run_health(ticker)
+    health = run_health(ticker, data=data)
 
     print("\n📈 [3/5] Technical Agent...")
-    tech = run_technical(ticker)
+    tech = run_technical(ticker, data=data)
 
     print("\n🌍 [4/5] Macro & Sentiment Agent...")
-    macro = run_macro(ticker)
+    macro = run_macro(ticker, data=data, extras=extras)
 
     fs = extract_score(fund)
     hs = extract_score(health)
@@ -51,13 +48,12 @@ def run_full_analysis(ticker):
     avg = round((fs+hs+ts+ms)/4, 1)
 
     print(f"\n⚖️  [5/5] Risk Manager...")
-    risk, metrics = run_risk(ticker, fs, hs, ts, ms)
+    risk, metrics = run_risk(ticker, data=data, spy_hist=extras["spy_hist"], fs=fs, hs=hs, ts=ts, ms=ms)
 
     print(f"\n{'#'*55}\n  🧠 CIO COMPILING BRIEF...\n{'#'*55}\n")
 
-    info = yf.Ticker(ticker).info
-    name = info.get("longName", ticker)
-    price = info.get("currentPrice", "N/A")
+    name = data["info"].get("longName", ticker)
+    price = data["info"].get("currentPrice", "N/A")
 
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     prompt = f"""You are the CIO of Claudio Inc., an elite AI hedge fund run by {OWNER}.
@@ -135,7 +131,7 @@ CIO NOTE TO {OWNER.upper()}
 
 — Claudio Inc. AI Investment Team"""
 
-    resp = client.messages.create(model="claude-sonnet-4-6", max_tokens=2500,
+    resp = client.messages.create(model=MODEL_MAIN, max_tokens=2500,
                                    messages=[{"role":"user","content":prompt}])
     brief = resp.content[0].text
     print(brief)
@@ -145,11 +141,10 @@ CIO NOTE TO {OWNER.upper()}
     with open(path,"w") as f: f.write(f"CLAUDIO INC. — CIO BRIEF\nGenerated: {now()}\n\n{brief}")
     print(f"\n  💾 Saved: {os.path.basename(path)}")
 
-    print(f"\n  📱 Sending to Telegram...")
-    send_telegram(brief)
-    print(f"  ✅ Sent!")
-
+    # Telegram delivery is the caller's job (bot.py relays this return value to
+    # the requesting chat). Sending it here too used to double-post every brief.
     return brief
 
 if __name__ == "__main__":
-    run_full_analysis(sys.argv[1].upper() if len(sys.argv)>1 else "AAPL")
+    result = run_full_analysis(sys.argv[1].upper() if len(sys.argv)>1 else "AAPL")
+    print(f"\n  📱 Run this through bot.py to have it delivered to Telegram.")

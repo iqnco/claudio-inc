@@ -1,10 +1,12 @@
 import os, sys
 from datetime import datetime
-import anthropic, yfinance as yf, numpy as np
+import anthropic, numpy as np
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
-from config.settings import ANTHROPIC_API_KEY
+sys.path.insert(0, os.path.join(REPO_ROOT, "agents"))
+from config.settings import ANTHROPIC_API_KEY, MODEL_FAST
+import market_data
 
 def now():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -81,17 +83,17 @@ TECHNICAL ANALYSIS — {ticker}
 7. VERDICT: [STRONG SETUP / DEVELOPING / WAIT / NO SETUP]
 [One paragraph — what needs to happen to trigger entry]"""
 
-    resp = client.messages.create(model="claude-sonnet-4-6", max_tokens=2000,
+    resp = client.messages.create(model=MODEL_FAST, max_tokens=2000,
                                    messages=[{"role":"user","content":prompt}])
     return resp.content[0].text
 
-def run(ticker):
+def run(ticker, data=None):
     ticker = ticker.upper()
     print(f"\n{'='*50}\n  📈 TECHNICAL AGENT — {ticker}\n  {now()}\n{'='*50}\n")
-    print("  📊 Computing indicators...")
-    stock = yf.Ticker(ticker)
-    data = {"hist": stock.history(period="1y"), "info": stock.info}
-    print("  🧠 Analyzing...")
+    if data is None:
+        print("  📊 Gathering data...")
+        data = market_data.fetch_core(ticker)
+    print("  🧠 Computing indicators & analyzing...")
     analysis = analyze(ticker, data)
     print(analysis)
     path = os.path.join(REPO_ROOT, "reports", f"technical_{ticker}.txt")

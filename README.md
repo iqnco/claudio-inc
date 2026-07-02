@@ -18,7 +18,7 @@ python3 setup.py
 
 The wizard asks for:
 1. An **Anthropic API key** (console.anthropic.com) — powers every agent
-2. Three free-tier market-data keys: **FMP**, **Finnhub**, **NewsAPI**
+2. Two free-tier market-data keys: **Finnhub**, **NewsAPI** (fundamentals/technicals/risk all come from yfinance, no key needed)
 3. Optionally, a **Telegram bot token** (via @BotFather) and your **Telegram user ID** (via @userinfobot), if you want the bot
 
 It then creates a virtual environment, installs dependencies, initializes
@@ -63,10 +63,9 @@ clear             — Reset conversation history
 [anything else]   — Chat with Claudio (remembers last 25 messages)
 ```
 
-Free-form chat shells out to the [Claude Code](https://claude.com/claude-code)
-CLI (`claude -p ...`) rather than the Anthropic API directly — install it and
-run `claude` once to log in if you want that to work. Analysis commands don't
-need it.
+Free-form chat and every analysis command run through the Anthropic API
+directly, with real multi-turn conversation memory for chat (the model
+actually sees prior turns, not just a flattened summary of them).
 
 ## Project structure
 
@@ -98,7 +97,7 @@ claudio-inc/
 edit directly and commit: `FUND_NAME`, `INITIAL_CAPITAL`,
 `MAX_POSITION_SIZE_PCT`, `MAX_SECTOR_CONCENTRATION_PCT`,
 `MAX_PORTFOLIO_DRAWDOWN_PCT`, `PAPER_TRADING`, `MIN_CONVICTION_SCORE`,
-`MAX_OPTIONS_RISK_PCT`, `FMP_DAILY_CALL_BUDGET`.
+`MAX_OPTIONS_RISK_PCT`, `MODEL_MAIN`, `MODEL_FAST`.
 
 Your name and Telegram chat ID live in the gitignored `config_local.py`
 instead, since they're personal rather than strategy settings.

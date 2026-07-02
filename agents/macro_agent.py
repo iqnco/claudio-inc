@@ -1,52 +1,23 @@
-import os, sys, requests
-from datetime import datetime, timedelta
-import anthropic, yfinance as yf
+import os, sys
+from datetime import datetime
+import anthropic
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
-from config.settings import ANTHROPIC_API_KEY, FINNHUB_API_KEY, NEWSAPI_KEY
+sys.path.insert(0, os.path.join(REPO_ROOT, "agents"))
+from config.settings import ANTHROPIC_API_KEY, FINNHUB_API_KEY, NEWSAPI_KEY, MODEL_MAIN
+import market_data
+
+TRADING_DAYS_3M = 63  # ~21 trading days/month × 3, used to slice 1y history instead of a separate 3mo fetch
 
 def now():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-def get_news(ticker):
-    try:
-        end = datetime.now().strftime("%Y-%m-%d")
-        start = (datetime.now()-timedelta(days=7)).strftime("%Y-%m-%d")
-        r = requests.get("https://finnhub.io/api/v1/company-news",
-            params={"symbol":ticker,"from":start,"to":end,"token":FINNHUB_API_KEY},timeout=10).json()
-        if isinstance(r,list) and r:
-            return "\n".join([f"• {n['headline']}" for n in r[:6]])
-        return "No recent news."
-    except: return "News unavailable."
-
-def get_market_news():
-    try:
-        r = requests.get("https://newsapi.org/v2/top-headlines",
-            params={"category":"business","country":"us","pageSize":6,"apiKey":NEWSAPI_KEY},timeout=10).json()
-        if r.get("articles"):
-            return "\n".join([f"• {a['title']}" for a in r["articles"][:6]])
-        return "No market news."
-    except: return "Market news unavailable."
-
-def get_sentiment(ticker):
-    try:
-        r = requests.get("https://finnhub.io/api/v1/recommendation-trends",
-            params={"symbol":ticker,"token":FINNHUB_API_KEY},timeout=10).json()
-        if isinstance(r,list) and r:
-            l = r[0]
-            return f"Strong Buy:{l.get('strongBuy',0)} Buy:{l.get('buy',0)} Hold:{l.get('hold',0)} Sell:{l.get('sell',0)}"
+def _pct_return(hist, days=TRADING_DAYS_3M):
+    close = hist["Close"].tail(days)
+    if len(close) < 2 or close.iloc[0] == 0:
         return "N/A"
-    except: return "N/A"
-
-def get_earnings(ticker):
-    try:
-        r = requests.get("https://finnhub.io/api/v1/calendar/earnings",
-            params={"symbol":ticker,"token":FINNHUB_API_KEY},timeout=10).json()
-        e = r.get("earningsCalendar",[])
-        if e: return f"{e[0].get('date')} (Est EPS: ${e[0].get('epsEstimate','N/A')})"
-        return "Not found"
-    except: return "N/A"
+    return round(((close.iloc[-1] - close.iloc[0]) / close.iloc[0]) * 100, 2)
 
 def analyze(ticker, info, spy_ret, vix, tnx, sector_ret, stock_ret, sector_etf, news, mkt_news, sentiment, earnings):
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -85,34 +56,30 @@ MACRO & SENTIMENT ANALYSIS — {ticker}
 8. VERDICT: [FAVORABLE / NEUTRAL / UNFAVORABLE]
 [One paragraph — is macro a tailwind or headwind right now]"""
 
-    resp = client.messages.create(model="claude-sonnet-4-6", max_tokens=2000,
+    resp = client.messages.create(model=MODEL_MAIN, max_tokens=2000,
                                    messages=[{"role":"user","content":prompt}])
     return resp.content[0].text
 
-def run(ticker):
+def run(ticker, data=None, extras=None):
     ticker = ticker.upper()
     print(f"\n{'='*50}\n  🌍 MACRO AGENT — {ticker}\n  {now()}\n{'='*50}\n")
-    print("  📰 Fetching live news & sentiment...")
-    stock = yf.Ticker(ticker)
-    info = stock.info
-    spy = yf.Ticker("SPY").history(period="3mo")
-    vix_h = yf.Ticker("^VIX").history(period="5d")
-    tnx_h = yf.Ticker("^TNX").history(period="5d")
-    sector_map = {"Technology":"XLK","Healthcare":"XLV","Financials":"XLF",
-                  "Consumer Cyclical":"XLY","Consumer Defensive":"XLP",
-                  "Industrials":"XLI","Energy":"XLE","Utilities":"XLU",
-                  "Real Estate":"XLRE","Materials":"XLB","Communication Services":"XLC"}
-    etf = sector_map.get(info.get("sector",""),"SPY")
-    sec_h = yf.Ticker(etf).history(period="3mo")
-    stk_h = stock.history(period="3mo")
-    spy_ret = round(((spy["Close"].iloc[-1]-spy["Close"].iloc[0])/spy["Close"].iloc[0])*100,2) if not spy.empty else "N/A"
-    vix_v = round(vix_h["Close"].iloc[-1],2) if not vix_h.empty else "N/A"
-    tnx_v = round(tnx_h["Close"].iloc[-1],2) if not tnx_h.empty else "N/A"
-    sec_ret = round(((sec_h["Close"].iloc[-1]-sec_h["Close"].iloc[0])/sec_h["Close"].iloc[0])*100,2) if not sec_h.empty else "N/A"
-    stk_ret = round(((stk_h["Close"].iloc[-1]-stk_h["Close"].iloc[0])/stk_h["Close"].iloc[0])*100,2) if not stk_h.empty else "N/A"
+    if data is None:
+        print("  📊 Gathering data...")
+        data = market_data.fetch_core(ticker)
+    info = data["info"]
+    if extras is None:
+        print("  📰 Fetching live news & sentiment...")
+        extras = market_data.fetch_macro_extras(ticker, info, FINNHUB_API_KEY, NEWSAPI_KEY)
+
+    spy_ret = _pct_return(extras["spy_hist"])
+    vix_v = round(extras["vix_hist"]["Close"].iloc[-1], 2) if not extras["vix_hist"].empty else "N/A"
+    tnx_v = round(extras["tnx_hist"]["Close"].iloc[-1], 2) if not extras["tnx_hist"].empty else "N/A"
+    sec_ret = _pct_return(extras["sector_hist"])
+    stk_ret = _pct_return(data["hist"])
+
     print("  🧠 Analyzing...")
-    analysis = analyze(ticker, info, spy_ret, vix_v, tnx_v, sec_ret, stk_ret, etf,
-                       get_news(ticker), get_market_news(), get_sentiment(ticker), get_earnings(ticker))
+    analysis = analyze(ticker, info, spy_ret, vix_v, tnx_v, sec_ret, stk_ret, extras["sector_etf"],
+                       extras["news"], extras["mkt_news"], extras["sentiment"], extras["earnings"])
     print(analysis)
     path = os.path.join(REPO_ROOT, "reports", f"macro_{ticker}.txt")
     os.makedirs(os.path.dirname(path), exist_ok=True)
